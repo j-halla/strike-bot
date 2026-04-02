@@ -1,0 +1,18 @@
+services:
+  bot-prod:
+    build:
+      context: .
+      target: production
+    env_file: .env
+    profiles: ["prod"]
+    restart: unless-stopped
+
+  bot-dev:
+    build:
+      context: .
+      target: development
+    env_file: .env
+    profiles: ["dev"]
+    volumes:
+      - .:/app
+      - ./data:/app/data
