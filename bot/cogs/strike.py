@@ -1,7 +1,15 @@
 import discord
-import datetime
+import datetime as dt
 from discord.ext import commands
 from bot.db import get_db
+
+DEFAULT_STRIKES = 1
+MAX_STRIKES = 5
+POLL_ANSWER_YES = "Yes"
+POLL_ANSWER_NO = "No"
+POLL_DURATION_HOURS = 1
+STRIKE_STATUS_ACCEPTED = 'accepted'
+STRIKE_STATUS_REJECTED = 'rejected'
 
 class Strike(commands.Cog):
     def __init__(self, bot):
@@ -23,10 +31,14 @@ class Strike(commands.Cog):
 
     # add strike to a member using poll
     @discord.app_commands.command(name="addstrike", description="Start poll to vote on strike")
-    async def addstrike(self, interaction: discord.Interaction, member: discord.Member, strikes: int = 1):
+    async def addstrike(self, interaction: discord.Interaction, member: discord.Member, strikes: int = DEFAULT_STRIKES):
         memberId = str(member.id)
         memberName = str(member.display_name)
         nrOfStrikes = strikes
+
+        if nrOfStrikes > MAX_STRIKES:
+            await interaction.response.send_message(f"{MAX_STRIKES} is the maximum number of strikes.")
+            return
 
         # member does not exist
         if not await self.checkMember(memberId):
@@ -36,10 +48,10 @@ class Strike(commands.Cog):
         # create poll
         poll = discord.Poll(
             question=f"Should {memberName} receive {nrOfStrikes} strike(s)?",
-            duration=datetime.timedelta(hours=24)
+            duration=dt.timedelta(hours=POLL_DURATION_HOURS)
         )
-        poll.add_answer(text="Yes")
-        poll.add_answer(text="No")
+        poll.add_answer(text=POLL_ANSWER_YES)
+        poll.add_answer(text=POLL_ANSWER_NO)
 
         await interaction.response.send_message(poll=poll)
         message = await interaction.original_response()
@@ -85,7 +97,7 @@ class Strike(commands.Cog):
     async def help(self, interaction: discord.Interaction):
         embed = discord.Embed(title="Strike Bot Commands")
         embed.add_field(name="/addmember <member>", value="Add a member to the bot.", inline=False)
-        embed.add_field(name="/addstrike <member> [strikes]", value="Start a 24h poll to give a member one or more strikes. Defaults to 1 strike.", inline=False)
+        embed.add_field(name="/addstrike <member> [strikes]", value=f"Start a {POLL_DURATION_HOURS}-hour poll to give a member one or more strikes. Defaults to {DEFAULT_STRIKES}, maximum is {MAX_STRIKES}.", inline=False)
         embed.add_field(name="/showstrikes <member>", value="Show the number of accepted strikes a member has.", inline=False)
         embed.add_field(name="/help", value="Show this help message.", inline=False)
         await interaction.response.send_message(embed=embed)
@@ -102,8 +114,8 @@ class Strike(commands.Cog):
             await interaction.response.send_message(f"{memberName} must be added first.")
             return
 
-        strikes = await self.getStrikes(memberId)
-        await interaction.response.send_message(f"{memberName} has {strikes} strike(s).")
+        nrOfStrikes = await self.getStrikes(memberId)
+        await interaction.response.send_message(f"{memberName} has {nrOfStrikes} strike(s).")
 
 
 
@@ -144,7 +156,7 @@ class Strike(commands.Cog):
     # update strike based on result of poll
     async def updateStrike(self, result, messageId):
 
-        status = 'accepted' if result == 'Yes' else 'rejected'
+        status = STRIKE_STATUS_ACCEPTED if result == POLL_ANSWER_YES else STRIKE_STATUS_REJECTED
         async with get_db() as db:
             await db.execute(
                 "UPDATE strike SET status = ? WHERE messageId = ?", [status, messageId]
