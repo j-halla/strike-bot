@@ -8,6 +8,7 @@ def get_db():
     return aiosqlite.connect(DB_PATH)
 
 async def init_db():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         with open(DB_SCHEMA_PATH) as f:
             await db.executescript(f.read())
