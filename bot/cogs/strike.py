@@ -103,26 +103,39 @@ class Strike(commands.Cog):
         embed = discord.Embed(title="Strike Bot Commands")
         embed.add_field(name="/adduser <member>", value="Add a member to the bot.", inline=False)
         embed.add_field(name="/addstrike <member> [strikes]", value=f"Start a {POLL_DURATION_HOURS}-hour poll to give a member one or more strikes. Defaults to {DEFAULT_STRIKES}, maximum is {MAX_STRIKES}.", inline=False)
-        embed.add_field(name="/showstrikes <member>", value="Show the number of accepted strikes a member has.", inline=False)
+        embed.add_field(name="/showstrikes [member]", value="Show accepted strikes for a member, or all members if none specified.", inline=False)
         embed.add_field(name="/help", value="Show this help message.", inline=False)
         await interaction.response.send_message(embed=embed)
 
 
-    # show strikes of member
-    @discord.app_commands.command(name="showstrikes", description="Show strikes of member")
-    async def showstrikes(self, interaction: discord.Interaction, member: discord.Member):
-        memberId = str(member.id)
+    # show strikes of member or all members
+    @discord.app_commands.command(name="showstrikes", description="Show strikes of a member, or all members if none specified")
+    async def showstrikes(self, interaction: discord.Interaction, member: discord.Member | None = None):
         guildId = str(interaction.guild_id)
-        memberName = str(member.display_name)
 
-        # member does not exist
-        userId = await self.getUserId(memberId, guildId)
-        if not userId:
-            await interaction.response.send_message(f"{memberName} must be added first.")
-            return
+        if member is not None:
+            memberId = str(member.id)
+            memberName = str(member.display_name)
 
-        nrOfStrikes = await self.getStrikes(userId)
-        await interaction.response.send_message(f"{memberName} has {nrOfStrikes} strike(s).")
+            userId = await self.getUserId(memberId, guildId)
+            if not userId:
+                await interaction.response.send_message(f"{memberName} must be added first.")
+                return
+
+            nrOfStrikes = await self.getStrikes(userId)
+            await interaction.response.send_message(f"{memberName} has {nrOfStrikes} strike(s).")
+        else:
+            rows = await self.getAllStrikes(guildId)
+            if not rows:
+                await interaction.response.send_message("No members registered.")
+                return
+
+            embed = discord.Embed(title="Strikes")
+            for memberId, strikes in rows:
+                discordMember = interaction.guild.get_member(int(memberId))
+                name = discordMember.display_name if discordMember else f"Unknown ({memberId})"
+                embed.add_field(name=name, value=f"{strikes} strike(s)", inline=False)
+            await interaction.response.send_message(embed=embed)
 
 
     # get user id
@@ -168,6 +181,19 @@ class Strike(commands.Cog):
                 "UPDATE strike SET status = ? WHERE messageId = ?", [status, messageId]
             )
             await db.commit()
+
+
+    # get all members with strike counts for a guild
+    async def getAllStrikes(self, guildId):
+        async with get_db() as db:
+            async with db.execute(
+                """SELECT u.memberId, COUNT(s.id)
+                   FROM user u
+                   LEFT JOIN strike s ON s.userId = u.id AND s.status = 'accepted' AND s.honored = '0000-00-00'
+                   WHERE u.guildId = ? AND u.deleted = 'no'
+                   GROUP BY u.id""", [guildId]
+            ) as cursor:
+                return await cursor.fetchall()
 
 
     # get member total from database
